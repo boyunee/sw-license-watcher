@@ -122,12 +122,30 @@ public class ApiSecurityOptionsValidatorTests
                 ClockSkew = TimeSpan.FromSeconds(-1)
             }
         }));
-        Assert.True(ApiSecurityOptionsValidator.HasValidJwt(new ApiSecurityOptions
+        Assert.False(ApiSecurityOptionsValidator.HasValidJwt(new ApiSecurityOptions
         {
             Jwt =
             {
                 Authority = "https://login.example/tenant/v2.0",
                 Audience = "api://swlw"
+            }
+        }));
+        Assert.False(ApiSecurityOptionsValidator.HasValidJwt(new ApiSecurityOptions
+        {
+            Jwt =
+            {
+                Authority = "http://login.example/tenant/v2.0",
+                Audience = "api://swlw",
+                RequiredScope = "admin"
+            }
+        }));
+        Assert.True(ApiSecurityOptionsValidator.HasValidJwt(new ApiSecurityOptions
+        {
+            Jwt =
+            {
+                Authority = "https://login.example/tenant/v2.0",
+                Audience = "api://swlw",
+                RequiredRole = "inventory.admin"
             }
         }));
     }

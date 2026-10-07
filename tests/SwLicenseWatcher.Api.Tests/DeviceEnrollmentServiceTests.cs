@@ -62,6 +62,99 @@ public class DeviceEnrollmentServiceTests
         Assert.Null(response.DeviceCertificate);
     }
 
+    [Fact]
+    public async Task Ingestion_rejects_an_empty_proof()
+    {
+        var sut = new DeviceEnrollmentService(new StubDevices(), new AcceptingAuthority());
+
+        var error = await sut.AuthorizeIngestionAsync("ASSET-1", null, null, null, null, CancellationToken.None);
+
+        Assert.Equal("The device proof is required.", error);
+    }
+
+    [Fact]
+    public async Task Ingestion_rejects_a_proof_from_a_different_key()
+    {
+        var (publicKey, _) = MldsaDeviceCrypto.GenerateKeyPair();
+        var (otherPublic, otherPrivate) = MldsaDeviceCrypto.GenerateKeyPair();
+        var proof = MldsaDeviceCrypto.ToBase64(
+            MldsaDeviceCrypto.Sign(otherPrivate, DeviceProofs.Payload("id-1", "ASSET-1")));
+        var devices = new StubDevices
+        {
+            Keys = new DeviceEnrollmentKeys("ASSET-1", null, "id-1", MldsaDeviceCrypto.ToBase64(publicKey), null)
+        };
+        var sut = new DeviceEnrollmentService(devices, new AcceptingAuthority());
+
+        var error = await sut.AuthorizeIngestionAsync(
+            "ASSET-1",
+            "id-1",
+            MldsaDeviceCrypto.ToBase64(otherPublic),
+            null,
+            proof,
+            CancellationToken.None);
+
+        Assert.Equal("The device public key does not match the registered key.", error);
+    }
+
+    [Fact]
+    public async Task Ingestion_rejects_a_stored_key_signed_by_someone_else()
+    {
+        var (publicKey, _) = MldsaDeviceCrypto.GenerateKeyPair();
+        var (_, otherPrivate) = MldsaDeviceCrypto.GenerateKeyPair();
+        var publicKeyText = MldsaDeviceCrypto.ToBase64(publicKey);
+        var proof = MldsaDeviceCrypto.ToBase64(
+            MldsaDeviceCrypto.Sign(otherPrivate, DeviceProofs.Payload("id-1", "ASSET-1")));
+        var devices = new StubDevices
+        {
+            Keys = new DeviceEnrollmentKeys("ASSET-1", null, "id-1", publicKeyText, null)
+        };
+        var sut = new DeviceEnrollmentService(devices, new AcceptingAuthority());
+
+        var error = await sut.AuthorizeIngestionAsync(
+            "ASSET-1",
+            "id-1",
+            publicKeyText,
+            null,
+            proof,
+            CancellationToken.None);
+
+        Assert.Equal("The device proof is invalid.", error);
+    }
+
+    [Fact]
+    public async Task Ingestion_accepts_a_proof_of_the_stored_key()
+    {
+        var (publicKey, privateKey) = MldsaDeviceCrypto.GenerateKeyPair();
+        var publicKeyText = MldsaDeviceCrypto.ToBase64(publicKey);
+        var proof = MldsaDeviceCrypto.ToBase64(
+            MldsaDeviceCrypto.Sign(privateKey, DeviceProofs.Payload("id-1", "ASSET-1")));
+        var devices = new StubDevices
+        {
+            Keys = new DeviceEnrollmentKeys("ASSET-1", null, "id-1", publicKeyText, null)
+        };
+        var sut = new DeviceEnrollmentService(devices, new AcceptingAuthority());
+
+        var error = await sut.AuthorizeIngestionAsync(
+            "ASSET-1",
+            "id-1",
+            publicKeyText,
+            null,
+            proof,
+            CancellationToken.None);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task Enrolled_agent_call_rejects_a_missing_enrollment()
+    {
+        var sut = new DeviceEnrollmentService(new StubDevices(), new AcceptingAuthority());
+
+        var error = await sut.AuthorizeEnrolledAgentAsync("ASSET-1", null, "proof", CancellationToken.None);
+
+        Assert.Equal("The device is not enrolled.", error);
+    }
+
     private sealed class StubDevices : IDeviceQuery
     {
         public DeviceEnrollmentKeys? Keys { get; set; }

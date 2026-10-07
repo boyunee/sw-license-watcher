@@ -3,6 +3,21 @@ using SwLicenseWatcher.Core;
 
 namespace SwLicenseWatcher.Api;
 
+internal static class DeviceProofHttp
+{
+    internal static string? ReadDeviceId(HttpRequest request)
+    {
+        var value = request.Headers[DeviceProofHeaders.DeviceId].ToString();
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    internal static string? ReadProof(HttpRequest request)
+    {
+        var value = request.Headers[DeviceProofHeaders.DeviceProof].ToString();
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+}
+
 internal static class UninstallQueryApi
 {
     public static void MapUninstallRequests(this WebApplication app)
@@ -10,11 +25,22 @@ internal static class UninstallQueryApi
         app.MapPost("/api/agents/uninstall-requests", async (
             UninstallRequestCreateRequest request,
             IUninstallRequestStore repository,
+            DeviceEnrollmentService enrollment,
             CancellationToken cancellationToken) =>
         {
             if (!TryValidateDeviceCode(request.DeviceCode, out var deviceCode, out var error))
             {
                 return Results.BadRequest(error);
+            }
+
+            var proofError = await enrollment.AuthorizeEnrolledAgentAsync(
+                deviceCode,
+                request.DeviceId,
+                request.DeviceProof,
+                cancellationToken);
+            if (proofError is not null)
+            {
+                return Results.BadRequest(proofError);
             }
 
             var created = await repository.CreateUninstallRequestAsync(deviceCode, cancellationToken);
@@ -26,12 +52,24 @@ internal static class UninstallQueryApi
         app.MapGet("/api/agents/uninstall-requests/{id:long}", async (
             long id,
             string? deviceCode,
+            HttpContext http,
             IUninstallRequestStore repository,
+            DeviceEnrollmentService enrollment,
             CancellationToken cancellationToken) =>
         {
             if (!TryValidateDeviceCode(deviceCode, out var normalizedDeviceCode, out var error))
             {
                 return Results.BadRequest(error);
+            }
+
+            var proofError = await enrollment.AuthorizeEnrolledAgentAsync(
+                normalizedDeviceCode,
+                DeviceProofHttp.ReadDeviceId(http.Request),
+                DeviceProofHttp.ReadProof(http.Request),
+                cancellationToken);
+            if (proofError is not null)
+            {
+                return Results.BadRequest(proofError);
             }
 
             var item = await repository.GetAgentUninstallRequestAsync(id, normalizedDeviceCode, cancellationToken);
@@ -42,11 +80,22 @@ internal static class UninstallQueryApi
             long id,
             UninstallRequestConsumeRequest request,
             IUninstallRequestStore repository,
+            DeviceEnrollmentService enrollment,
             CancellationToken cancellationToken) =>
         {
             if (!TryValidateDeviceCode(request.DeviceCode, out var deviceCode, out var deviceError))
             {
                 return Results.BadRequest(deviceError);
+            }
+
+            var proofError = await enrollment.AuthorizeEnrolledAgentAsync(
+                deviceCode,
+                request.DeviceId,
+                request.DeviceProof,
+                cancellationToken);
+            if (proofError is not null)
+            {
+                return Results.BadRequest(proofError);
             }
 
             if (string.IsNullOrWhiteSpace(request.Code))

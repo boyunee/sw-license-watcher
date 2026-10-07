@@ -2,14 +2,24 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using SwLicenseWatcher.Core;
 
 namespace SwLicenseWatcher.Setup.Core;
 
 public sealed class UninstallApiClient(HttpClient httpClient) : IUninstallApiClient
 {
-    public async Task<UninstallRequestCreated> CreateAsync(string deviceCode, CancellationToken cancellationToken)
+    public async Task<UninstallRequestCreated> CreateAsync(
+        string deviceCode,
+        string? deviceId,
+        string proof,
+        CancellationToken cancellationToken)
     {
-        var body = new UninstallRequestCreateBody { DeviceCode = deviceCode };
+        var body = new UninstallRequestCreateBody
+        {
+            DeviceCode = deviceCode,
+            DeviceId = deviceId,
+            DeviceProof = proof
+        };
         using var content = new StringContent(
             JsonSerializer.Serialize(body, SetupJsonContext.Default.UninstallRequestCreateBody),
             Encoding.UTF8,
@@ -25,17 +35,36 @@ public sealed class UninstallApiClient(HttpClient httpClient) : IUninstallApiCli
         return created;
     }
 
-    public async Task<AgentUninstallRequest> GetAsync(long requestId, string deviceCode, CancellationToken cancellationToken)
+    public async Task<AgentUninstallRequest> GetAsync(
+        long requestId,
+        string deviceCode,
+        string? deviceId,
+        string proof,
+        CancellationToken cancellationToken)
     {
         var path = $"/api/agents/uninstall-requests/{requestId}?deviceCode={Uri.EscapeDataString(deviceCode)}";
-        using var response = await httpClient.GetAsync(path, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        AddProofHeaders(request, deviceId, proof);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
         return await DeserializeAsync(response, SetupJsonContext.Default.AgentUninstallRequest, cancellationToken);
     }
 
-    public async Task ConsumeAsync(long requestId, string deviceCode, string code, CancellationToken cancellationToken)
+    public async Task ConsumeAsync(
+        long requestId,
+        string deviceCode,
+        string code,
+        string? deviceId,
+        string proof,
+        CancellationToken cancellationToken)
     {
-        var body = new UninstallRequestConsumeBody { DeviceCode = deviceCode, Code = code };
+        var body = new UninstallRequestConsumeBody
+        {
+            DeviceCode = deviceCode,
+            Code = code,
+            DeviceId = deviceId,
+            DeviceProof = proof
+        };
         using var content = new StringContent(
             JsonSerializer.Serialize(body, SetupJsonContext.Default.UninstallRequestConsumeBody),
             Encoding.UTF8,
@@ -68,6 +97,16 @@ public sealed class UninstallApiClient(HttpClient httpClient) : IUninstallApiCli
         };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", agentToken.Trim());
         return client;
+    }
+
+    private static void AddProofHeaders(HttpRequestMessage request, string? deviceId, string proof)
+    {
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            request.Headers.TryAddWithoutValidation(DeviceProofHeaders.DeviceId, deviceId);
+        }
+
+        request.Headers.TryAddWithoutValidation(DeviceProofHeaders.DeviceProof, proof);
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)

@@ -22,13 +22,14 @@ internal static class InventoryIngestionEndpoints
                 return Results.BadRequest(validationError);
             }
 
-            if (!enrollment.TryAccept(
-                    request.Pc.DeviceId,
-                    request.Pc.DevicePublicKey,
-                    request.Pc.DeviceCertificate,
-                    request.Pc.DeviceProof,
-                    request.Pc.DeviceCode,
-                    out var identityError))
+            var identityError = await enrollment.AuthorizeIngestionAsync(
+                request.Pc.DeviceCode,
+                request.Pc.DeviceId,
+                request.Pc.DevicePublicKey,
+                request.Pc.DeviceCertificate,
+                request.Pc.DeviceProof,
+                cancellationToken);
+            if (identityError is not null)
             {
                 return Results.BadRequest(identityError);
             }
@@ -68,13 +69,14 @@ internal static class InventoryIngestionEndpoints
                 return Results.BadRequest(validationError);
             }
 
-            if (!enrollment.TryAccept(
-                    heartbeat.DeviceId,
-                    heartbeat.DevicePublicKey,
-                    heartbeat.DeviceCertificate,
-                    heartbeat.DeviceProof,
-                    heartbeat.DeviceCode,
-                    out var identityError))
+            var identityError = await enrollment.AuthorizeIngestionAsync(
+                heartbeat.DeviceCode,
+                heartbeat.DeviceId,
+                heartbeat.DevicePublicKey,
+                heartbeat.DeviceCertificate,
+                heartbeat.DeviceProof,
+                cancellationToken);
+            if (identityError is not null)
             {
                 return Results.BadRequest(identityError);
             }

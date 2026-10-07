@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Options;
 using SwLicenseWatcher.Core;
+using SwLicenseWatcher.Crypto;
 
 namespace SwLicenseWatcher.Agent.Worker;
 
@@ -20,11 +21,18 @@ public sealed class AgentApiClient
     private readonly ILogger<AgentApiClient> _logger;
     private readonly WorkerAgentOptions _options;
 
-    public AgentApiClient(HttpClient httpClient, ILogger<AgentApiClient> logger, IOptions<WorkerAgentOptions> options)
+    private readonly AgentDeviceIdentityStore? _identity;
+
+    public AgentApiClient(
+        HttpClient httpClient,
+        ILogger<AgentApiClient> logger,
+        IOptions<WorkerAgentOptions> options,
+        AgentDeviceIdentityStore? identity = null)
     {
         _httpClient = httpClient;
         _logger = logger;
         _options = options.Value;
+        _identity = identity;
     }
 
     public Task<AgentPublishOutcome> PublishSnapshotAsync(InventoryIngestionRequest snapshot, CancellationToken cancellationToken) =>
@@ -41,12 +49,18 @@ public sealed class AgentApiClient
     {
         try
         {
+            if (!TryCreateProof(deviceCode, out var deviceId, out var proof))
+            {
+                _logger.LogWarning("Device identity is not ready to consume uninstall grant {Id}.", id);
+                return false;
+            }
+
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 $"/api/agents/uninstall-requests/{id}/consume")
             {
                 Content = JsonContent.Create(
-                    new UninstallRequestConsumeRequest(deviceCode, code),
+                    new UninstallRequestConsumeRequest(deviceCode, code, deviceId, proof),
                     InventoryJsonSerializerContext.Default.UninstallRequestConsumeRequest)
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiToken);
@@ -80,12 +94,18 @@ public sealed class AgentApiClient
     {
         try
         {
+            if (!TryCreateProof(deviceCode, out var deviceId, out var proof))
+            {
+                _logger.LogWarning("Device identity is not ready to consume user message {Id}.", id);
+                return false;
+            }
+
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 $"/api/agents/user-messages/{id}/consume")
             {
                 Content = JsonContent.Create(
-                    new UserMessageConsumeRequest(deviceCode),
+                    new UserMessageConsumeRequest(deviceCode, deviceId, proof),
                     InventoryJsonSerializerContext.Default.UserMessageConsumeRequest)
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiToken);
@@ -110,6 +130,32 @@ public sealed class AgentApiClient
             _logger.LogWarning(ex, "Failed to consume user message {Id}.", id);
             return false;
         }
+    }
+
+    private bool TryCreateProof(string deviceCode, out string? deviceId, out string proof)
+    {
+        deviceId = null;
+        proof = string.Empty;
+        if (_identity is null)
+        {
+            return false;
+        }
+
+        var stored = _identity.Current;
+        if (string.IsNullOrWhiteSpace(stored.PrivateKey))
+        {
+            stored = _identity.Ensure();
+        }
+
+        deviceId = stored.DeviceId;
+        if (!MldsaDeviceCrypto.TryFromBase64(stored.PrivateKey, out var privateKey))
+        {
+            return false;
+        }
+
+        proof = MldsaDeviceCrypto.ToBase64(
+            MldsaDeviceCrypto.Sign(privateKey, DeviceProofs.Payload(stored.DeviceId ?? "", deviceCode)));
+        return true;
     }
 
     private async Task<AgentPublishOutcome> PostAsync<TPayload>(string path, TPayload payload, JsonTypeInfo<TPayload> typeInfo, CancellationToken cancellationToken)

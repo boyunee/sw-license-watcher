@@ -153,17 +153,22 @@ public static class ApiSecurityOptionsValidator
             return false;
         }
 
-        return IsHttpOrHttpsAbsoluteUri(jwt.Authority) &&
+        if (string.IsNullOrWhiteSpace(jwt.RequiredScope) && string.IsNullOrWhiteSpace(jwt.RequiredRole))
+        {
+            return false;
+        }
+
+        return IsHttpsAbsoluteUri(jwt.Authority) &&
             (string.IsNullOrWhiteSpace(jwt.MetadataAddress) ||
-             IsHttpOrHttpsAbsoluteUri(jwt.MetadataAddress));
+             IsHttpsAbsoluteUri(jwt.MetadataAddress));
     }
 
     private static bool IsMissingOrUsable(string? value) =>
         string.IsNullOrWhiteSpace(value) || value.Length >= MinimumTokenLength;
 
-    private static bool IsHttpOrHttpsAbsoluteUri(string value) =>
+    private static bool IsHttpsAbsoluteUri(string value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+        uri.Scheme == Uri.UriSchemeHttps;
 }
 
 public sealed class UpdateManifestOptions

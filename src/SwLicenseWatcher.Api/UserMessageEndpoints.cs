@@ -68,11 +68,22 @@ internal static class UserMessageEndpoints
             long id,
             UserMessageConsumeRequest request,
             IUserMessageStore store,
+            DeviceEnrollmentService enrollment,
             CancellationToken cancellationToken) =>
         {
             if (!UninstallQueryApi.TryValidateDeviceCode(request.DeviceCode, out var deviceCode, out var deviceError))
             {
                 return Results.BadRequest(deviceError);
+            }
+
+            var proofError = await enrollment.AuthorizeEnrolledAgentAsync(
+                deviceCode,
+                request.DeviceId,
+                request.DeviceProof,
+                cancellationToken);
+            if (proofError is not null)
+            {
+                return Results.BadRequest(proofError);
             }
 
             return await store.ConsumeAsync(id, deviceCode, cancellationToken)
@@ -85,11 +96,22 @@ internal static class UserMessageEndpoints
             HttpContext http,
             IUserMessageStore store,
             UserMessageEventHub hub,
+            DeviceEnrollmentService enrollment,
             CancellationToken cancellationToken) =>
         {
             if (!UninstallQueryApi.TryValidateDeviceCode(deviceCode, out var normalizedDeviceCode, out var error))
             {
                 return Results.BadRequest(error);
+            }
+
+            var proofError = await enrollment.AuthorizeEnrolledAgentAsync(
+                normalizedDeviceCode,
+                DeviceProofHttp.ReadDeviceId(http.Request),
+                DeviceProofHttp.ReadProof(http.Request),
+                cancellationToken);
+            if (proofError is not null)
+            {
+                return Results.BadRequest(proofError);
             }
 
             http.Response.Headers.ContentType = "text/event-stream";

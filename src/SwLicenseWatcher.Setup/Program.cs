@@ -63,7 +63,8 @@ internal static class Program
             var uninstall = new UninstallOrchestrator(
                 new UninstallApiClient(http),
                 new InstalledDeviceCodeReader(),
-                setup);
+                setup,
+                new MldsaUninstallProofFactory());
             Application.Run(new UninstallForm(uninstall));
         }
         else

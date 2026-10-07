@@ -81,6 +81,11 @@ internal sealed class JwtAccessTokenAuthenticator : IJwtAccessTokenAuthenticator
             return JwtAdminAuthenticationResult.Failed;
         }
 
+        if (string.IsNullOrWhiteSpace(_jwt.RequiredScope) && string.IsNullOrWhiteSpace(_jwt.RequiredRole))
+        {
+            return JwtAdminAuthenticationResult.Failed;
+        }
+
         if (!TryReadBearerToken(authorizationHeader, out var token))
         {
             return JwtAdminAuthenticationResult.Failed;

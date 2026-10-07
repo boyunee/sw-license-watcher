@@ -40,7 +40,23 @@ public sealed class AgentDeviceIdentityStore(string filePath, ILocalStateProtect
 
         if (generated)
         {
-            Write();
+            var written = _identity;
+            try
+            {
+                Write();
+            }
+            catch
+            {
+                lock (_gate)
+                {
+                    if (ReferenceEquals(_identity, written) || _identity.PrivateKey == written.PrivateKey)
+                    {
+                        _identity = new StoredDeviceIdentity(null, "", "", null);
+                    }
+                }
+
+                throw;
+            }
         }
         else
         {
@@ -57,6 +73,7 @@ public sealed class AgentDeviceIdentityStore(string filePath, ILocalStateProtect
             return;
         }
 
+        StoredDeviceIdentity previous;
         lock (_gate)
         {
             if (string.Equals(_identity.DeviceId, deviceId, StringComparison.Ordinal) &&
@@ -65,6 +82,7 @@ public sealed class AgentDeviceIdentityStore(string filePath, ILocalStateProtect
                 return;
             }
 
+            previous = _identity;
             _identity = _identity with
             {
                 DeviceId = string.IsNullOrWhiteSpace(deviceId) ? _identity.DeviceId : deviceId,
@@ -72,7 +90,19 @@ public sealed class AgentDeviceIdentityStore(string filePath, ILocalStateProtect
             };
         }
 
-        Write();
+        try
+        {
+            Write();
+        }
+        catch
+        {
+            lock (_gate)
+            {
+                _identity = previous;
+            }
+
+            throw;
+        }
     }
 
     private void Write()
@@ -93,7 +123,14 @@ public sealed class AgentDeviceIdentityStore(string filePath, ILocalStateProtect
         var temporaryPath = filePath + ".tmp";
         File.WriteAllText(temporaryPath, protector.Protect(json));
         File.Move(temporaryPath, filePath, true);
-        LocalIdentityFileAcl.RestrictPrivateKey(filePath);
+        if (!LocalIdentityFileAcl.RestrictPrivateKey(filePath))
+        {
+            TryDelete(filePath);
+            TryDelete(temporaryPath);
+            throw new InvalidOperationException(
+                "The device private key file could not be restricted to Administrators and SYSTEM.");
+        }
+
         ExportPublicKey(identity);
     }
 
@@ -116,6 +153,20 @@ public sealed class AgentDeviceIdentityStore(string filePath, ILocalStateProtect
         File.WriteAllText(temporaryPath, identity.PublicKey.Trim());
         File.Move(temporaryPath, publicKeyPath, true);
         LocalIdentityFileAcl.AllowUsersRead(publicKeyPath);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static StoredDeviceIdentity Read(string path, ILocalStateProtector protector)

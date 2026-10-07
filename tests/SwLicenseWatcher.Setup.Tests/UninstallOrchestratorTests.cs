@@ -21,7 +21,7 @@ public class UninstallOrchestratorTests
             installRoot: installRoot,
             stateRoot: Path.Combine(directory.Path, "state"),
             privilege: UnrestrictedAdministratorPrivilege.Instance);
-        var sut = new UninstallOrchestrator(api, new InstalledDeviceCodeReader(installRoot), setup);
+        var sut = new UninstallOrchestrator(api, new InstalledDeviceCodeReader(installRoot), setup, new FixedDeviceProof());
 
         await sut.RequestAndUninstallAsync("MACHINE", progress: null, CancellationToken.None);
 
@@ -57,7 +57,8 @@ public class UninstallOrchestratorTests
         var sut = new UninstallOrchestrator(
             new DeniedApiClient(),
             new InstalledDeviceCodeReader(installRoot),
-            setup);
+            setup,
+            new FixedDeviceProof());
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => sut.RequestAndUninstallAsync("MACHINE", progress: null, CancellationToken.None));
@@ -80,7 +81,7 @@ public class UninstallOrchestratorTests
             installRoot: installRoot,
             stateRoot: Path.Combine(directory.Path, "state"),
             privilege: new DeniedPrivilege());
-        var sut = new UninstallOrchestrator(api, new InstalledDeviceCodeReader(installRoot), setup);
+        var sut = new UninstallOrchestrator(api, new InstalledDeviceCodeReader(installRoot), setup, new FixedDeviceProof());
 
         var error = await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => sut.RequestAndUninstallAsync("MACHINE", progress: null, CancellationToken.None));
@@ -93,7 +94,11 @@ public class UninstallOrchestratorTests
     {
         public string? CreatedFor { get; private set; }
 
-        public Task<UninstallRequestCreated> CreateAsync(string deviceCode, CancellationToken cancellationToken)
+        public Task<UninstallRequestCreated> CreateAsync(
+            string deviceCode,
+            string? deviceId,
+            string proof,
+            CancellationToken cancellationToken)
         {
             CreatedFor = deviceCode;
             events.Add("create");
@@ -103,6 +108,8 @@ public class UninstallOrchestratorTests
         public Task<AgentUninstallRequest> GetAsync(
             long requestId,
             string deviceCode,
+            string? deviceId,
+            string proof,
             CancellationToken cancellationToken)
         {
             events.Add("get");
@@ -119,6 +126,8 @@ public class UninstallOrchestratorTests
             long requestId,
             string deviceCode,
             string code,
+            string? deviceId,
+            string proof,
             CancellationToken cancellationToken)
         {
             events.Add("consume");
@@ -126,14 +135,31 @@ public class UninstallOrchestratorTests
         }
     }
 
+    private sealed class FixedDeviceProof : IDeviceUninstallProof
+    {
+        public bool TryCreate(string deviceCode, out string? deviceId, out string proof, out string error)
+        {
+            deviceId = "device-1";
+            proof = "proof";
+            error = string.Empty;
+            return true;
+        }
+    }
+
     private sealed class DeniedApiClient : IUninstallApiClient
     {
-        public Task<UninstallRequestCreated> CreateAsync(string deviceCode, CancellationToken cancellationToken) =>
+        public Task<UninstallRequestCreated> CreateAsync(
+            string deviceCode,
+            string? deviceId,
+            string proof,
+            CancellationToken cancellationToken) =>
             Task.FromResult(new UninstallRequestCreated { Id = 1, DeviceCode = deviceCode });
 
         public Task<AgentUninstallRequest> GetAsync(
             long requestId,
             string deviceCode,
+            string? deviceId,
+            string proof,
             CancellationToken cancellationToken) =>
             Task.FromResult(new AgentUninstallRequest { Id = requestId, DeviceCode = deviceCode, Status = "denied" });
 
@@ -141,6 +167,8 @@ public class UninstallOrchestratorTests
             long requestId,
             string deviceCode,
             string code,
+            string? deviceId,
+            string proof,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Consume should not be called.");
     }
@@ -172,12 +200,18 @@ public class UninstallOrchestratorTests
 
     private sealed class MustNotBeCalledApiClient : IUninstallApiClient
     {
-        public Task<UninstallRequestCreated> CreateAsync(string deviceCode, CancellationToken cancellationToken) =>
+        public Task<UninstallRequestCreated> CreateAsync(
+            string deviceCode,
+            string? deviceId,
+            string proof,
+            CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Uninstall API should not be called without elevation.");
 
         public Task<AgentUninstallRequest> GetAsync(
             long requestId,
             string deviceCode,
+            string? deviceId,
+            string proof,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Uninstall API should not be called without elevation.");
 
@@ -185,6 +219,8 @@ public class UninstallOrchestratorTests
             long requestId,
             string deviceCode,
             string code,
+            string? deviceId,
+            string proof,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Uninstall API should not be called without elevation.");
     }

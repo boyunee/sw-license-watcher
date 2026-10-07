@@ -29,8 +29,10 @@ public class JwtAccessTokenAuthenticatorTests
     public async Task Valid_token_is_accepted_as_admin()
     {
         var key = CreateKey();
-        var authenticator = CreateAuthenticator(EnabledJwt(), key);
-        var token = CreateToken(key);
+        var jwt = EnabledJwt();
+        jwt.RequiredScope = "admin";
+        var authenticator = CreateAuthenticator(jwt, key);
+        var token = CreateToken(key, claims: new Dictionary<string, object> { ["scp"] = "admin" });
 
         var result = await authenticator.AuthenticateAdminAsync("Bearer " + token, CancellationToken.None);
 
@@ -39,11 +41,30 @@ public class JwtAccessTokenAuthenticatorTests
     }
 
     [Fact]
-    public async Task Expired_token_is_rejected()
+    public async Task Valid_token_is_rejected_when_scope_and_role_are_not_required()
     {
         var key = CreateKey();
         var authenticator = CreateAuthenticator(EnabledJwt(), key);
-        var token = CreateToken(key, expires: DateTime.UtcNow.AddMinutes(-10), notBefore: DateTime.UtcNow.AddMinutes(-20));
+
+        var result = await authenticator.AuthenticateAdminAsync(
+            "Bearer " + CreateToken(key),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task Expired_token_is_rejected()
+    {
+        var key = CreateKey();
+        var jwt = EnabledJwt();
+        jwt.RequiredScope = "admin";
+        var authenticator = CreateAuthenticator(jwt, key);
+        var token = CreateToken(
+            key,
+            expires: DateTime.UtcNow.AddMinutes(-10),
+            notBefore: DateTime.UtcNow.AddMinutes(-20),
+            claims: new Dictionary<string, object> { ["scp"] = "admin" });
 
         var result = await authenticator.AuthenticateAdminAsync("Bearer " + token, CancellationToken.None);
 
@@ -54,8 +75,13 @@ public class JwtAccessTokenAuthenticatorTests
     public async Task Wrong_audience_is_rejected()
     {
         var key = CreateKey();
-        var authenticator = CreateAuthenticator(EnabledJwt(), key);
-        var token = CreateToken(key, audience: "api://other");
+        var jwt = EnabledJwt();
+        jwt.RequiredScope = "admin";
+        var authenticator = CreateAuthenticator(jwt, key);
+        var token = CreateToken(
+            key,
+            audience: "api://other",
+            claims: new Dictionary<string, object> { ["scp"] = "admin" });
 
         var result = await authenticator.AuthenticateAdminAsync("Bearer " + token, CancellationToken.None);
 

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Options;
 using SwLicenseWatcher.Core;
+using SwLicenseWatcher.Crypto;
 
 namespace SwLicenseWatcher.Agent.Worker;
 
@@ -8,6 +9,7 @@ public sealed class AgentEventStreamClient(
     HttpClient httpClient,
     IOptions<WorkerAgentOptions> options,
     AgentAssignmentStore assignmentStore,
+    AgentDeviceIdentityStore identityStore,
     ILogger<AgentEventStreamClient> logger)
 {
     public async Task ListenAsync(
@@ -15,9 +17,24 @@ public sealed class AgentEventStreamClient(
         CancellationToken cancellationToken)
     {
         var deviceCode = assignmentStore.ResolveDeviceCode(options.Value.DeviceCode);
+        var stored = identityStore.Ensure();
+        if (!MldsaDeviceCrypto.TryFromBase64(stored.PrivateKey, out var privateKey))
+        {
+            logger.LogWarning("Device identity is not ready for the user-message event stream.");
+            return;
+        }
+
+        var proof = MldsaDeviceCrypto.ToBase64(
+            MldsaDeviceCrypto.Sign(privateKey, DeviceProofs.Payload(stored.DeviceId ?? "", deviceCode)));
         var path = $"{options.Value.EventsPath}?deviceCode={Uri.EscapeDataString(deviceCode)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.ApiToken);
+        if (!string.IsNullOrWhiteSpace(stored.DeviceId))
+        {
+            request.Headers.TryAddWithoutValidation(DeviceProofHeaders.DeviceId, stored.DeviceId);
+        }
+
+        request.Headers.TryAddWithoutValidation(DeviceProofHeaders.DeviceProof, proof);
         request.Headers.Accept.ParseAdd("text/event-stream");
         using var response = await httpClient.SendAsync(
             request,

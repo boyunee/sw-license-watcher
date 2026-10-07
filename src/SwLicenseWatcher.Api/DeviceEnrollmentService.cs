@@ -41,7 +41,8 @@ internal sealed class DeviceEnrollmentService(
 
         if (string.IsNullOrWhiteSpace(proof))
         {
-            return true;
+            error = "The device proof is required.";
+            return false;
         }
 
         var key = publicKey;
@@ -64,6 +65,101 @@ internal sealed class DeviceEnrollmentService(
             return false;
         }
 
+        return true;
+    }
+
+    public async Task<string?> AuthorizeIngestionAsync(
+        string deviceCode,
+        string? deviceId,
+        string? publicKey,
+        string? certificateJson,
+        string? proof,
+        CancellationToken cancellationToken)
+    {
+        var keys = await devices.GetDeviceEnrollmentKeysAsync(deviceCode, deviceId: null, cancellationToken);
+        if (keys is not null && !string.IsNullOrWhiteSpace(keys.DevicePublicKey))
+        {
+            return AuthorizeStoredKey(keys, deviceId, publicKey, proof, deviceCode);
+        }
+
+        return TryAccept(deviceId, publicKey, certificateJson, proof, deviceCode, out var error)
+            ? null
+            : error;
+    }
+
+    public async Task<string?> AuthorizeEnrolledAgentAsync(
+        string deviceCode,
+        string? deviceId,
+        string? proof,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(proof))
+        {
+            return "The device proof is required.";
+        }
+
+        var keys = await devices.GetDeviceEnrollmentKeysAsync(deviceCode, deviceId: null, cancellationToken);
+        if (keys is null || string.IsNullOrWhiteSpace(keys.DevicePublicKey))
+        {
+            return "The device is not enrolled.";
+        }
+
+        return AuthorizeStoredKey(keys, deviceId, publicKey: null, proof, deviceCode);
+    }
+
+    private static string? AuthorizeStoredKey(
+        DeviceEnrollmentKeys keys,
+        string? deviceId,
+        string? publicKey,
+        string? proof,
+        string deviceCode)
+    {
+        if (!string.IsNullOrWhiteSpace(publicKey) &&
+            !string.Equals(publicKey, keys.DevicePublicKey, StringComparison.Ordinal))
+        {
+            return "The device public key does not match the registered key.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(deviceId) &&
+            !string.IsNullOrWhiteSpace(keys.DeviceId) &&
+            !string.Equals(deviceId, keys.DeviceId, StringComparison.Ordinal))
+        {
+            return "The device id does not match the registered device.";
+        }
+
+        var id = string.IsNullOrWhiteSpace(keys.DeviceId) ? deviceId ?? "" : keys.DeviceId;
+        return TryVerifyProof(keys.DevicePublicKey!, proof, id, deviceCode, out var error)
+            ? null
+            : error;
+    }
+
+    private static bool TryVerifyProof(
+        string publicKey,
+        string? proof,
+        string deviceId,
+        string deviceCode,
+        out string error)
+    {
+        if (string.IsNullOrWhiteSpace(proof))
+        {
+            error = "The device proof is required.";
+            return false;
+        }
+
+        if (!MldsaDeviceCrypto.TryFromBase64(publicKey, out var publicBytes) ||
+            !MldsaDeviceCrypto.TryFromBase64(proof, out var proofBytes))
+        {
+            error = "The device proof is malformed.";
+            return false;
+        }
+
+        if (!MldsaDeviceCrypto.Verify(publicBytes, DeviceProofs.Payload(deviceId, deviceCode), proofBytes))
+        {
+            error = "The device proof is invalid.";
+            return false;
+        }
+
+        error = string.Empty;
         return true;
     }
 

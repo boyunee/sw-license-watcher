@@ -80,11 +80,11 @@ API는 서버에서만 호스팅합니다. PC 에이전트 설치 대상이 아�
 | `Security:AgentToken` | 예 | 32자 이상. 스냅샷·하트비트·제거 요청·manifest 조회. PC `ApiToken`과 동일 |
 | `Security:AdminToken` | 예 | 32자 이상. 조회·정책·위반·design/schema·업데이트 핀. `AgentToken`과 달라야 함. JWT를 쓰더라도 비상용으로 유지 |
 | `Security:RequireHttps` | | 운영은 `true`. 원격 HTTP는 거부, loopback HTTP는 허용 |
-| `Security:Jwt:Authority` | | OAuth 2 Resource Server. 비우면 JWT 비활성. 예: `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `Security:Jwt:Authority` | | OAuth 2 Resource Server. 비우면 JWT 비활성. HTTPS만 허용. 예: `https://login.microsoftonline.com/<tenant-id>/v2.0` |
 | `Security:Jwt:Audience` | Authority가 있을 때 예 | access token `aud`. Entra Application ID URI 또는 클라이언트 ID |
-| `Security:Jwt:MetadataAddress` | | 비우면 `{Authority}/.well-known/openid-configuration` |
-| `Security:Jwt:RequiredScope` | | 있으면 `scp`/`scope`에 이 값이 있어야 함. Entra에 `admin` 같은 scope를 두는 것을 권장 |
-| `Security:Jwt:RequiredRole` | | 있으면 `roles`(또는 `RoleClaimType`)에 이 값이 있어야 함 |
+| `Security:Jwt:MetadataAddress` | | 비우면 `{Authority}/.well-known/openid-configuration`. 적으면 HTTPS만 허용 |
+| `Security:Jwt:RequiredScope` | Authority가 있을 때 scope 또는 role 중 하나 | `scp`/`scope`에 이 값이 있어야 함. Entra에 `admin` 같은 scope를 둔다 |
+| `Security:Jwt:RequiredRole` | Authority가 있을 때 scope 또는 role 중 하나 | `roles`(또는 `RoleClaimType`)에 이 값이 있어야 함. Scope를 쓰면 비워도 된다 |
 | `Security:Jwt:ClockSkew` | | 기본 5분 |
 | `Storage:SqlServer:ConnectionString` | 예 | `TrustServerCertificate=False` 권장 |
 | `Storage:SqlServer:SchemaName` 및 테이블/컬럼 | 예 | 기본 예시는 `inventory.company_pc`, `inventory.company_stale_heartbeat_notification`, `inventory.company_pc_uninstall_request`, `inventory.company_pc_sw_license`, `inventory.company_worker_update_pin` 등. 정책 테이블에는 `default_license_source` 컬럼이 있습니다. 식별자는 영문·숫자·밑줄만 |
@@ -112,8 +112,8 @@ $adminToken = .\New-ApiToken.ps1
 
 API는 Authorization Server가 아닙니다. Entra ID·Keycloak 등 IdP가 발급한 Bearer access token을 검증합니다. `Security:Jwt:Authority`가 비어 있으면 이전과 같이 정적 토큰만 받습니다.
 
-1. IdP에서 API를 리소스로 등록하고 Application ID URI(예: `api://sw-license-watcher`)를 `Audience`에 넣습니다.
-2. Entra는 **Expose an API**로 `admin` 같은 scope를 만들고 `RequiredScope`에 맞춥니다.
+1. IdP에서 API를 리소스로 등록하고 Application ID URI(예: `api://sw-license-watcher`)를 `Audience`에 넣습니다. Authority와 MetadataAddress는 HTTPS여야 하며, 아니면 API가 기동하지 않습니다.
+2. Entra는 **Expose an API**로 `admin` 같은 scope를 만들고 `RequiredScope`에 맞춥니다. `RequiredRole`만 넣어도 됩니다. 둘 다 비우면 API가 기동하지 않고, audience만 맞는 토큰은 관리자가 되지 않습니다.
 3. 관리자 API와 `/admin` 입력란에는 `Authorization: Bearer <access token>`을 씁니다. 인증 실패 시 `WWW-Authenticate: Bearer`와 401을 반환합니다.
 4. 에이전트 수집·하트비트 경로는 JWT로 열리지 않습니다.
 

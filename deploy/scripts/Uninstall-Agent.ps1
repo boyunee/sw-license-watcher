@@ -126,6 +126,13 @@ function Invoke-AgentApi {
 
     $uri = $ServerBaseUrl.TrimEnd('/') + $Path
     $headers = @{ Authorization = "Bearer $ApiToken" }
+    if ($null -ne $DeviceProof) {
+        if (Test-HasText $DeviceProof.DeviceId) {
+            $headers['X-Device-Id'] = $DeviceProof.DeviceId
+        }
+
+        $headers['X-Device-Proof'] = $DeviceProof.Proof
+    }
     $params = @{
         Method      = $Method
         Uri         = $uri
@@ -190,7 +197,7 @@ function Wait-UninstallGrant {
                 throw "The uninstall grant was approved but no code was returned."
             }
 
-            Write-Host "Uninstall grant issued for $DeviceCode : $code"
+            Write-Host "Uninstall grant issued for $DeviceCode."
             return $code
         }
 
@@ -218,8 +225,35 @@ if ([string]::IsNullOrWhiteSpace($DeviceCode)) {
 
 Assert-ServerBaseUrl -Url $ServerBaseUrl
 
+function Get-InstalledDeviceProof {
+    $workerExe = Join-Path $InstallRoot "Agent.Worker\SwLicenseWatcher.Agent.Worker.exe"
+    if (-not (Test-Path -LiteralPath $workerExe)) {
+        throw "Worker executable was not found at '$workerExe'. Device proof cannot be created."
+    }
+
+    $output = & $workerExe --print-device-proof "--device-code=$DeviceCode"
+    if ($LASTEXITCODE -ne 0) {
+        throw "The installed Worker could not create a device proof for $DeviceCode."
+    }
+
+    $lines = @($output | Where-Object { $_ -ne $null })
+    if ($lines.Count -lt 2 -or -not (Test-HasText $lines[$lines.Count - 1])) {
+        throw "The installed Worker did not return a device proof."
+    }
+
+    return @{
+        DeviceId = [string] $lines[$lines.Count - 2]
+        Proof    = [string] $lines[$lines.Count - 1]
+    }
+}
+
 Write-Host "Requesting an uninstall grant from $ServerBaseUrl for $DeviceCode"
-$created = Invoke-AgentApi -Method POST -Path '/api/agents/uninstall-requests' -Body @{ deviceCode = $DeviceCode }
+$DeviceProof = Get-InstalledDeviceProof
+$created = Invoke-AgentApi -Method POST -Path '/api/agents/uninstall-requests' -Body @{
+    deviceCode  = $DeviceCode
+    deviceId    = $DeviceProof.DeviceId
+    deviceProof = $DeviceProof.Proof
+}
 $requestId = [long] (Get-JsonProperty -Object $created -Name 'id')
 if ($requestId -le 0) {
     throw "The API did not return an uninstall request id."
@@ -227,8 +261,10 @@ if ($requestId -le 0) {
 
 $code = Wait-UninstallGrant -RequestId $requestId
 Invoke-AgentApi -Method POST -Path "/api/agents/uninstall-requests/$requestId/consume" -Body @{
-    deviceCode = $DeviceCode
-    code       = $code
+    deviceCode  = $DeviceCode
+    code        = $code
+    deviceId    = $DeviceProof.DeviceId
+    deviceProof = $DeviceProof.Proof
 }
 Write-Host "Uninstall grant consumed. Removing services."
 

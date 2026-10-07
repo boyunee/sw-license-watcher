@@ -7,6 +7,11 @@ if (RemoteAgentUninstaller.TryApplyFromArgs(args))
     return;
 }
 
+if (DeviceProofCommand.TryHandle(args))
+{
+    return;
+}
+
 Directory.SetCurrentDirectory(AppContext.BaseDirectory);
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 {

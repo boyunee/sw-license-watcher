@@ -48,7 +48,7 @@ internal static class ApiServiceCollectionExtensions
                 "Security:AgentToken must differ from Security:AdminToken.")
             .Validate(
                 ApiSecurityOptionsValidator.HasValidJwt,
-                "Security:Jwt:Authority requires Security:Jwt:Audience and HTTP(S) Authority (and MetadataAddress when set). ClockSkew must not be negative.")
+                "Security:Jwt:Authority requires an https Authority, Security:Jwt:Audience, and Security:Jwt:RequiredScope or Security:Jwt:RequiredRole. MetadataAddress, when set, must be https. ClockSkew must not be negative.")
             .ValidateOnStart();
         services.AddOptions<UpdateManifestOptions>()
             .Bind(configuration.GetSection("Updates:Worker"))

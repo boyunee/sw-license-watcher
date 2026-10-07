@@ -39,6 +39,13 @@ public static class DeviceCodes
     }
 }
 
+public static class DeviceProofHeaders
+{
+    public const string DeviceId = "X-Device-Id";
+
+    public const string DeviceProof = "X-Device-Proof";
+}
+
 public static class DeviceProofs
 {
     public static byte[] Payload(string deviceId, string deviceCode) =>

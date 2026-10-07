@@ -109,7 +109,10 @@ public sealed record UninstallRequestListResponse(
     int TotalCount,
     IReadOnlyList<AdminUninstallRequest> Items);
 
-public sealed record UninstallRequestCreateRequest(string DeviceCode);
+public sealed record UninstallRequestCreateRequest(
+    string DeviceCode,
+    string? DeviceId = null,
+    string? DeviceProof = null);
 
 public sealed record UninstallRequestCreatedResponse(
     long Id,
@@ -127,7 +130,11 @@ public sealed record AgentUninstallRequestResponse(
     DateTimeOffset? ExpiresAtUtc,
     string? Code);
 
-public sealed record UninstallRequestConsumeRequest(string DeviceCode, string Code);
+public sealed record UninstallRequestConsumeRequest(
+    string DeviceCode,
+    string Code,
+    string? DeviceId = null,
+    string? DeviceProof = null);
 
 public sealed record DeviceProfileWriteRequest(
     string? AssignedHostName,
@@ -147,4 +154,7 @@ public sealed record UserMessageCreatedResponse(
 
 public sealed record UserMessageBroadcastResponse(int Count);
 
-public sealed record UserMessageConsumeRequest(string DeviceCode);
+public sealed record UserMessageConsumeRequest(
+    string DeviceCode,
+    string? DeviceId = null,
+    string? DeviceProof = null);
