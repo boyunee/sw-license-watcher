@@ -140,7 +140,9 @@ internal sealed partial class SqlServerDataContext
         return (totalCount, items);
     }
 
-    public async Task<List<SoftwareAsset>> ListSoftwareAssetsAsync(
+    public async Task<(int TotalCount, List<SoftwareAggregateAssets> Items)> ListSoftwareWithAssetsAsync(
+        int skip,
+        int take,
         string? search,
         string? classification,
         CancellationToken cancellationToken)
@@ -149,36 +151,90 @@ internal sealed partial class SqlServerDataContext
         await connection.OpenAsync(cancellationToken);
         var software = options.InstalledSoftwareTable;
         var pc = options.PcTable;
+        var name = Name(software.DisplayNameColumn);
+        var version = Name(software.DisplayVersionColumn);
+        var classificationColumn = Name(software.ClassificationColumn);
+        // 페이지 그룹과 설치 PC를 SQL 안에서 짝지어 GROUP BY와 같은 비교 규칙(후행 공백, collation, NULL)을 그대로 쓴다.
         var sql = $"""
-            SELECT DISTINCT
-                s.{Name(software.DisplayNameColumn)}, s.{Name(software.DisplayVersionColumn)},
-                s.{Name(software.ClassificationColumn)},
-                {DisplayDeviceCodeSql("p")} AS device_code,
-                {DisplayHostNameSql("p")} AS device_name
-            FROM {Name(options.SchemaName, software.TableName)} AS s
-            INNER JOIN {Name(options.SchemaName, pc.TableName)} AS p
-                ON p.{Name(pc.PrimaryKeyColumn)} = s.{Name(software.PcForeignKeyColumn)}
-            WHERE (@search IS NULL OR s.{Name(software.DisplayNameColumn)} LIKE @search)
-              AND (@classification IS NULL OR s.{Name(software.ClassificationColumn)} = @classification)
-            ORDER BY s.{Name(software.DisplayNameColumn)}, s.{Name(software.DisplayVersionColumn)},
-                s.{Name(software.ClassificationColumn)}, device_name, device_code;
+            WITH page AS (
+                SELECT
+                    COUNT(*) OVER() AS total_count,
+                    ROW_NUMBER() OVER(ORDER BY {name}, {version}, {classificationColumn}) AS row_index,
+                    {name}, {version}, {classificationColumn},
+                    COUNT(DISTINCT {Name(software.PcForeignKeyColumn)}) AS device_count
+                FROM {Name(options.SchemaName, software.TableName)}
+                WHERE (@search IS NULL OR {name} LIKE @search)
+                  AND (@classification IS NULL OR {classificationColumn} = @classification)
+                GROUP BY {name}, {version}, {classificationColumn}
+                ORDER BY {name}, {version}, {classificationColumn}
+                OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY
+            )
+            SELECT page.total_count, page.row_index,
+                page.{name}, page.{version}, page.{classificationColumn}, page.device_count,
+                d.device_code, d.device_name
+            FROM page
+            OUTER APPLY (
+                SELECT DISTINCT
+                    {DisplayDeviceCodeSql("p")} AS device_code,
+                    {DisplayHostNameSql("p")} AS device_name
+                FROM {Name(options.SchemaName, software.TableName)} AS s
+                INNER JOIN {Name(options.SchemaName, pc.TableName)} AS p
+                    ON p.{Name(pc.PrimaryKeyColumn)} = s.{Name(software.PcForeignKeyColumn)}
+                WHERE s.{name} = page.{name}
+                  AND (s.{version} = page.{version} OR (s.{version} IS NULL AND page.{version} IS NULL))
+                  AND (s.{classificationColumn} = page.{classificationColumn}
+                       OR (s.{classificationColumn} IS NULL AND page.{classificationColumn} IS NULL))
+                  AND (@search IS NULL OR s.{name} LIKE @search)
+            ) AS d
+            ORDER BY page.row_index, d.device_name, d.device_code;
             """;
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add(new SqlParameter("@search", DbValue(ToContainsPattern(search))));
         command.Parameters.Add(new SqlParameter("@classification", DbValue(classification)));
+        command.Parameters.Add(new SqlParameter("@skip", skip));
+        command.Parameters.Add(new SqlParameter("@take", take));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        var items = new List<SoftwareAsset>();
+        var aggregates = new List<SoftwareAggregate>();
+        var devices = new List<List<SoftwareAssetDevice>>();
+        var totalCount = 0;
+        long? currentRow = null;
+        var rowIndexOrdinal = reader.GetOrdinal("row_index");
+        var deviceCodeOrdinal = reader.GetOrdinal("device_code");
+        var deviceNameOrdinal = reader.GetOrdinal("device_name");
         while (await reader.ReadAsync(cancellationToken))
         {
-            items.Add(new SoftwareAsset(
-                reader.GetString(reader.GetOrdinal(software.DisplayNameColumn)),
-                ReadNullableString(reader, software.DisplayVersionColumn),
-                ReadClassification(reader, software.ClassificationColumn),
-                reader.GetString(reader.GetOrdinal("device_code")),
-                reader.GetString(reader.GetOrdinal("device_name"))));
+            var rowIndex = reader.GetInt64(rowIndexOrdinal);
+            if (rowIndex != currentRow)
+            {
+                if (aggregates.Count == 0)
+                {
+                    totalCount = reader.GetInt32(reader.GetOrdinal("total_count"));
+                }
+
+                currentRow = rowIndex;
+                aggregates.Add(new SoftwareAggregate(
+                    reader.GetString(reader.GetOrdinal(software.DisplayNameColumn)),
+                    ReadNullableString(reader, software.DisplayVersionColumn),
+                    ReadClassification(reader, software.ClassificationColumn),
+                    reader.GetInt32(reader.GetOrdinal("device_count"))));
+                devices.Add([]);
+            }
+
+            if (!reader.IsDBNull(deviceCodeOrdinal))
+            {
+                devices[^1].Add(new SoftwareAssetDevice(
+                    reader.GetString(deviceCodeOrdinal),
+                    reader.GetString(deviceNameOrdinal)));
+            }
         }
 
-        return items;
+        await reader.CloseAsync();
+        if (aggregates.Exists(item => item.Classification == SoftwarePolicyClassificationNames.Managed))
+        {
+            aggregates = await FillSoftwareLicenseCountsAsync(connection, aggregates, cancellationToken);
+        }
+
+        return (totalCount, aggregates.Select((item, index) => new SoftwareAggregateAssets(item, devices[index])).ToList());
     }
 
     private async Task<List<SoftwareAggregate>> FillSoftwareLicenseCountsAsync(

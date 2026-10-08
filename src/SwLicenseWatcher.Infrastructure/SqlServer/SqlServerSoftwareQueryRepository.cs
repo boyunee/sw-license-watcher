@@ -21,9 +21,11 @@ internal sealed class SqlServerSoftwareQueryRepository(SqlServerDataContext cont
         CancellationToken cancellationToken) =>
         context.ListSoftwareDevicesAsync(name, skip, take, classification, cancellationToken);
 
-    public Task<List<SoftwareAsset>> ListSoftwareAssetsAsync(
+    public Task<(int TotalCount, List<SoftwareAggregateAssets> Items)> ListSoftwareWithAssetsAsync(
+        int skip,
+        int take,
         string? search,
         string? classification,
         CancellationToken cancellationToken) =>
-        context.ListSoftwareAssetsAsync(search, classification, cancellationToken);
+        context.ListSoftwareWithAssetsAsync(skip, take, search, classification, cancellationToken);
 }

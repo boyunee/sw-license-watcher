@@ -82,7 +82,9 @@ public interface ISoftwareQuery
         string? classification,
         CancellationToken cancellationToken);
 
-    Task<List<SoftwareAsset>> ListSoftwareAssetsAsync(
+    Task<(int TotalCount, List<SoftwareAggregateAssets> Items)> ListSoftwareWithAssetsAsync(
+        int skip,
+        int take,
         string? search,
         string? classification,
         CancellationToken cancellationToken);
