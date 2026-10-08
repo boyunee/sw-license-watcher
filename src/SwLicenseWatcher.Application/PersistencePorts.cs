@@ -81,6 +81,11 @@ public interface ISoftwareQuery
         int take,
         string? classification,
         CancellationToken cancellationToken);
+
+    Task<List<SoftwareAsset>> ListSoftwareAssetsAsync(
+        string? search,
+        string? classification,
+        CancellationToken cancellationToken);
 }
 
 public interface IViolationQuery

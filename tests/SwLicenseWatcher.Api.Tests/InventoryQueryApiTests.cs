@@ -6,6 +6,27 @@ namespace SwLicenseWatcher.Api.Tests;
 
 public class InventoryQueryApiTests
 {
+    [Fact]
+    public void SoftwareAssetColumns_joins_device_codes_and_names_per_software()
+    {
+        var assets = InventoryQueryApi.GroupSoftwareAssets(
+        [
+            new SoftwareAsset("Chrome", "120", "white", "A001", "홍길동PC"),
+            new SoftwareAsset("chrome", "120", "white", "A002", "PC-02"),
+            new SoftwareAsset("Chrome", "121", "white", "A003", "PC-03")
+        ]);
+
+        Assert.Equal(
+            ("A001; A002", "홍길동PC; PC-02"),
+            InventoryQueryApi.SoftwareAssetColumns(new SoftwareAggregate("Chrome", "120", "white", 2), assets));
+        Assert.Equal(
+            ("A003", "PC-03"),
+            InventoryQueryApi.SoftwareAssetColumns(new SoftwareAggregate("Chrome", "121", "white", 1), assets));
+        Assert.Equal(
+            (string.Empty, string.Empty),
+            InventoryQueryApi.SoftwareAssetColumns(new SoftwareAggregate("Chrome", "120", "black", 1), assets));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

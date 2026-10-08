@@ -341,7 +341,7 @@ API 실행 후:
 | GET | `/api/inventory/devices` | PC 목록 (자산코드, 호스트명, 관리자 PC 명, 메모, 도메인, OS, 에이전트 버전, 마지막 heartbeat/inventory 시각) | `skip`, `take`, `search`(호스트명·지정 PC 명 또는 자산코드), `staleAfterHours`, `format=csv` |
 | GET | `/api/inventory/devices/{deviceCode}` | 단일 PC 상세와 설치 소프트웨어 전체(항목별 `classification`) | `classification`, `format=csv` |
 | PUT | `/api/inventory/devices/{deviceCode}` | 관리자 자산코드(`assignedDeviceCode`), PC 명(`assignedHostName`), 메모(`adminNotes`). 다음 스냅샷/하트비트 응답으로 클라이언트에 부여됨. 기기 고유값(`deviceId`)은 ML-DSA-87 인증서 | 본문 `assignedDeviceCode?`, `assignedHostName?`, `adminNotes?` |
-| GET | `/api/inventory/software` | SW 이름/버전/분류별 설치 PC 수. `managed`는 `companyCount` / `byoCount` / `unassignedCount` | `skip`, `take`, `search`(이름), `classification`, `format=csv` |
+| GET | `/api/inventory/software` | SW 이름/버전/분류별 설치 PC 수. `managed`는 `companyCount` / `byoCount` / `unassignedCount`. CSV에는 설치 PC의 자산코드·PC 명 목록(`DeviceCodes` / `DeviceNames`, `; ` 구분)이 추가됨 | `skip`, `take`, `search`(이름), `classification`, `format=csv` |
 | GET | `/api/inventory/software/{name}/devices` | 해당 SW가 설치된 PC 목록. 항목별 유효 `licenseSource`와 PC 할당 `licenseSourceOverride` | `skip`, `take`, `classification`, `format=csv` |
 | PUT | `/api/inventory/software/{name}/classification` | 정확 일치 활성 정책을 만들거나 갱신한 뒤, 이미 모인 설치 행의 분류를 즉시 다시 칠함 | 본문 `classification`, `publisher?`, `defaultLicenseSource?`, `notes?` |
 | PUT | `/api/inventory/software/classifications` | 소프트웨어 분류를 한 번에 여러 개 지정(최대 100). 한 트랜잭션 | 본문 `items: [{ name, classification, publisher?, defaultLicenseSource? }]` |

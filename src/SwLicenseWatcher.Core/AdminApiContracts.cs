@@ -50,6 +50,13 @@ public sealed record SoftwareAggregate(
     int ByoCount = 0,
     int UnassignedCount = 0);
 
+public sealed record SoftwareAsset(
+    string Name,
+    string? Version,
+    string Classification,
+    string DeviceCode,
+    string DeviceName);
+
 public sealed record SoftwareAggregateListResponse(
     int Skip,
     int Take,

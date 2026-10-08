@@ -140,6 +140,47 @@ internal sealed partial class SqlServerDataContext
         return (totalCount, items);
     }
 
+    public async Task<List<SoftwareAsset>> ListSoftwareAssetsAsync(
+        string? search,
+        string? classification,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(options.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        var software = options.InstalledSoftwareTable;
+        var pc = options.PcTable;
+        var sql = $"""
+            SELECT DISTINCT
+                s.{Name(software.DisplayNameColumn)}, s.{Name(software.DisplayVersionColumn)},
+                s.{Name(software.ClassificationColumn)},
+                {DisplayDeviceCodeSql("p")} AS device_code,
+                {DisplayHostNameSql("p")} AS device_name
+            FROM {Name(options.SchemaName, software.TableName)} AS s
+            INNER JOIN {Name(options.SchemaName, pc.TableName)} AS p
+                ON p.{Name(pc.PrimaryKeyColumn)} = s.{Name(software.PcForeignKeyColumn)}
+            WHERE (@search IS NULL OR s.{Name(software.DisplayNameColumn)} LIKE @search)
+              AND (@classification IS NULL OR s.{Name(software.ClassificationColumn)} = @classification)
+            ORDER BY s.{Name(software.DisplayNameColumn)}, s.{Name(software.DisplayVersionColumn)},
+                s.{Name(software.ClassificationColumn)}, device_name, device_code;
+            """;
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add(new SqlParameter("@search", DbValue(ToContainsPattern(search))));
+        command.Parameters.Add(new SqlParameter("@classification", DbValue(classification)));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var items = new List<SoftwareAsset>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(new SoftwareAsset(
+                reader.GetString(reader.GetOrdinal(software.DisplayNameColumn)),
+                ReadNullableString(reader, software.DisplayVersionColumn),
+                ReadClassification(reader, software.ClassificationColumn),
+                reader.GetString(reader.GetOrdinal("device_code")),
+                reader.GetString(reader.GetOrdinal("device_name"))));
+        }
+
+        return items;
+    }
+
     private async Task<List<SoftwareAggregate>> FillSoftwareLicenseCountsAsync(
         SqlConnection connection,
         List<SoftwareAggregate> items,

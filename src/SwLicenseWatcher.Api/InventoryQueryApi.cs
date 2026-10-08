@@ -87,18 +87,26 @@ internal static class InventoryQueryApi
 
             if (csv)
             {
+                var assets = GroupSoftwareAssets(
+                    await repository.ListSoftwareAssetsAsync(search, normalizedClassification, cancellationToken));
                 return InventoryCsv.File(
                     "software.csv",
-                    ["Name", "Version", "Classification", "DeviceCount", "CompanyCount", "ByoCount", "UnassignedCount"],
-                    items.Select(entry => new[]
+                    ["Name", "Version", "Classification", "DeviceCount", "CompanyCount", "ByoCount", "UnassignedCount", "DeviceCodes", "DeviceNames"],
+                    items.Select(entry =>
                     {
-                        entry.Name,
-                        entry.Version,
-                        entry.Classification,
-                        entry.DeviceCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        entry.CompanyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        entry.ByoCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        entry.UnassignedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        var (deviceCodes, deviceNames) = SoftwareAssetColumns(entry, assets);
+                        return new[]
+                        {
+                            entry.Name,
+                            entry.Version,
+                            entry.Classification,
+                            entry.DeviceCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            entry.CompanyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            entry.ByoCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            entry.UnassignedCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            deviceCodes,
+                            deviceNames
+                        };
                     }));
             }
 
@@ -324,6 +332,40 @@ internal static class InventoryQueryApi
         entry?.LicenseSource,
         entry?.LicenseSourceOverride
     ];
+
+    internal static Dictionary<string, List<SoftwareAsset>> GroupSoftwareAssets(IEnumerable<SoftwareAsset> assets)
+    {
+        var groups = new Dictionary<string, List<SoftwareAsset>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var asset in assets)
+        {
+            var key = SoftwareAssetKey(asset.Name, asset.Version, asset.Classification);
+            if (!groups.TryGetValue(key, out var list))
+            {
+                groups[key] = list = [];
+            }
+
+            list.Add(asset);
+        }
+
+        return groups;
+    }
+
+    internal static (string DeviceCodes, string DeviceNames) SoftwareAssetColumns(
+        SoftwareAggregate entry,
+        IReadOnlyDictionary<string, List<SoftwareAsset>> assets)
+    {
+        if (!assets.TryGetValue(SoftwareAssetKey(entry.Name, entry.Version, entry.Classification), out var list))
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        return (
+            string.Join("; ", list.Select(asset => asset.DeviceCode)),
+            string.Join("; ", list.Select(asset => asset.DeviceName)));
+    }
+
+    private static string SoftwareAssetKey(string name, string? version, string classification) =>
+        $"{name}\u001f{version}\u001f{classification}";
 
     internal static bool TryNormalizeClassification(string? classification, out string? normalized, out string error)
     {
